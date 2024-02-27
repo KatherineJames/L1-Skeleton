@@ -1,15 +1,7 @@
-import subprocess
-import tempfile
-
 from cloudvolume import Skeleton
 import numpy as np
 import open3d as o3d
-
-TMP_DIR = "/tmp"
-BIN_PATH = "pointcloudl1.sh"
-DEFAULT_JSON_CONFIG_PATH = (
-    "/home/jason/projects/l1/L1-Skeleton/default_skeleton_config.json"
-)
+import os
 
 
 def parse_skel(filename):
@@ -124,7 +116,6 @@ def parse_skel(filename):
 
     return result
 
-
 def to_cloud_volume_skeleton(parsed):
     branch_length = np.array([len(x) for x in parsed["branches"]])
     flattened_vertices = np.concatenate(parsed["branches"])
@@ -150,44 +141,17 @@ def to_cloud_volume_skeleton(parsed):
 
     return skel
 
-
-def point_cloud_to_ply(pc, out_filename):
-    # NOTE: assumes isotropic data, properly scaled data
-    # pc: [N, 3]
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(pc)
-    o3d.io.write_point_cloud(out_filename, pcd)
-
-    return out_filename
-
-
-def generate_skeleton(pc):
-    ply_path = point_cloud_to_ply(
-        pc, tempfile.NamedTemporaryFile(suffix=".ply", dir=TMP_DIR, delete=False).name
-    )
-    skel_path = tempfile.NamedTemporaryFile(
-        suffix=".skel", dir=TMP_DIR, delete=False
-    ).name
-    cmd = f"{BIN_PATH} {ply_path} {skel_path} {DEFAULT_JSON_CONFIG_PATH}"
-
-    log_file = tempfile.NamedTemporaryFile(suffix=".txt", dir=TMP_DIR, delete=False)
-    print(f"Running command: {cmd}")
-    print(f"Logging to: {log_file.name}")
-
-    # NOTE: this is a blocking call, can use subprocess.Popen to run in background
-    subprocess.run(cmd.split(), stdout=log_file, stderr=log_file)
-
-    skel = parse_skel(skel_path)
-    skeleton = to_cloud_volume_skeleton(skel)
-
+def generate_skeleton(name):       
+    skel = parse_skel(f"Results/l1_medial/raw/{name}")
+    skeleton = to_cloud_volume_skeleton(skel)   
     return skeleton
 
-
-if __name__ == "__main__":
-    import nibabel as nib
-
-    vol = nib.load("RibFrac1-rib-seg.nii.gz").get_fdata()
-    # downscale
-    pc = np.argwhere(vol == 1) * 0.01
-    skeleton = generate_skeleton(pc)
-    skeleton.viewer()
+if __name__ == "__main__":  
+    filenames = os.listdir(f"Results/l1_medial/raw/")
+    for filename in filenames:
+        skeleton = generate_skeleton(filename)  
+        line_set = o3d.geometry.LineSet(points=o3d.utility.Vector3dVector(
+                    skeleton.vertices), lines=o3d.utility.Vector2iVector(skeleton.edges))
+        o3d.io.write_line_set(
+                    f"Results/l1_medial/{filename}.ply", line_set, write_ascii=True)
+        # o3d.visualization.draw_geometries([line_set])
